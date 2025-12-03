@@ -6,8 +6,6 @@ import pytz
 import time
 
 # --- CONFIGURACIÓN DE SEGURIDAD ---
-# Pon True si quieres probar cambios sin publicar en Twitter.
-# Pon False para que el bot funcione normalmente.
 MODO_PRUEBA = False 
 
 def main():
@@ -22,7 +20,7 @@ def main():
     
     HORA_REPORTE_UTC = 14
 
-    # --- CONSTANTES ATH (Máximos Históricos Aprox) ---
+    # --- CONSTANTES ATH ---
     ATH_VALUES = {
         '1': 108000,    # Bitcoin
         '1027': 4891,   # Ethereum
@@ -54,7 +52,6 @@ def main():
             raise e
 
     def get_fear_and_greed():
-        """Solo para el reporte diario"""
         try:
             r = requests.get("https://api.alternative.me/fng/?limit=1")
             data = r.json()['data'][0]
@@ -101,7 +98,8 @@ def main():
             extra_header = get_fear_and_greed()
         else: 
             title = "Update"
-            icon = "🪙"
+            # CAMBIO AQUÍ: Bolsa de dinero en vez de moneda
+            icon = "💰" 
             tag = "(1h)"
             key = 'percent_change_1h'
 
@@ -128,7 +126,6 @@ def main():
             
             rocket = " 🚀" if coin_id == best_coin_id else ""
             
-            # --- LÓGICA SEMANAL (ATH) ---
             if mode == '7d':
                 ath = ATH_VALUES.get(coin_id, 0)
                 if ath > 0:
@@ -140,13 +137,11 @@ def main():
                 else:
                     ath_str = ""
                 
-                # Semanal: Sin Euros, con ATH
                 line = (
                     f"${symbol}: {format_price(price_usd, '$')} "
                     f"{get_emoji(change)} {change:+.1f}% | {ath_str}"
                 )
             else:
-                # Diario/Normal: Con Euros, sin ATH
                 line = (
                     f"${symbol}: {format_price(price_usd, '$')} / {format_price(eur['price'], '€')} "
                     f"{get_emoji(change)} {change:+.1f}% {tag}{rocket}"
@@ -168,6 +163,7 @@ def main():
         if now_utc.weekday() == 0:
             tweets_to_send.append('7d')
     else:
+        # En el resto de horas, mandamos el normal
         tweets_to_send.append('1h')
 
     client = tweepy.Client(
@@ -182,17 +178,13 @@ def main():
         for mode in tweets_to_send:
             text = generate_tweet_text(data, mode)
             
-            # Recorte de seguridad
             if len(text) > 280:
                 text = text.replace("$BTC $ETH $SOL #Crypto", "#Crypto")
             if len(text) > 280:
                 text = text[:280]
             
-            # --- EL GRAN CAMBIO: MODO PRUEBA ---
             if MODO_PRUEBA:
-                print(f"🧪 [SIMULACRO] Tweet que se enviaría ({mode}):")
-                print(text)
-                print("-" * 20)
+                print(f"🧪 [SIMULACRO] Tweet ({mode}):\n{text}\n{'-'*20}")
             else:
                 client.create_tweet(text=text)
                 print(f"✅ Tweet enviado ({mode})!")
