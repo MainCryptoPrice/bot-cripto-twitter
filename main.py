@@ -6,16 +6,15 @@ import pytz
 import time
 
 def main():
-    print("🤖 Iniciando bot de precios (Versión Lite)...")
+    print("🤖 Iniciando bot de precios (Diseño Gráficas)...")
 
-    # 1. CARGAR LLAVES (Igual que en el Hola Mundo que funcionó)
+    # 1. CARGAR LLAVES
     CMC_API_KEY = os.environ.get("CMC_API_KEY")
     TWITTER_API_KEY = os.environ.get("TWITTER_API_KEY")
     TWITTER_API_SECRET = os.environ.get("TWITTER_API_SECRET")
     TWITTER_ACCESS_TOKEN = os.environ.get("TWITTER_ACCESS_TOKEN")
     TWITTER_ACCESS_SECRET = os.environ.get("TWITTER_ACCESS_SECRET")
     
-    # Hora reporte (14:00 UTC)
     HORA_REPORTE_UTC = 14
 
     # --- FUNCIONES INTERNAS ---
@@ -24,7 +23,6 @@ def main():
         ids = '1,1027,5426,1839,52' 
         headers = {'Accepts': 'application/json', 'X-CMC_PRO_API_KEY': CMC_API_KEY}
         
-        # Llamadas separadas USD/EUR para evitar error plan gratis
         try:
             r_usd = requests.get(url, headers=headers, params={'id': ids, 'convert': 'USD'})
             r_usd.raise_for_status()
@@ -42,7 +40,6 @@ def main():
             raise e
 
     def format_price(n, symbol):
-        # Ahorramos caracteres: sin decimales si vale más de 100
         if n > 100:
             return f"{symbol}{n:,.0f}"
         elif n >= 1:
@@ -52,12 +49,12 @@ def main():
 
     def get_emoji(change):
         if change is None: return "⚪"
-        if change > 0: return "🟢"
-        if change < 0: return "🔴"
+        # CAMBIO AQUÍ: Usamos gráficas en vez de bolas
+        if change > 0: return "📈"
+        if change < 0: return "📉"
         return "⚪"
 
     def generate_tweet_text(data, mode):
-        # Horas cortas
         now_utc = datetime.now(pytz.utc)
         time_str = now_utc.strftime('%H:%M UTC')
         
@@ -77,25 +74,22 @@ def main():
             tag = "(1h)"
             key = 'percent_change_1h'
 
-        # Cabecera compacta
-        tweet = f"{icon} {title} | {time_str}\n"
+        tweet = f"{icon} {title} | {time_str}\n\n"
         
         order = ['1', '1027', '5426', '1839', '52']
         for coin_id in order:
             c = data[coin_id]
-            symbol = c['symbol'] # Usamos solo símbolo (BTC) no nombre largo
+            symbol = c['symbol']
             usd = c['quote']['USD']
             eur = c['quote']['EUR']
             change = usd[key]
             
-            # Línea compacta: BTC: $96,500 / €91,200 🟢 +0.5%
             line = (
                 f"{symbol}: {format_price(usd['price'], '$')} / {format_price(eur['price'], '€')} "
-                f"{get_emoji(change)} {change:+.1f}%"
+                f"{get_emoji(change)} {change:+.1f}% {tag}"
             )
             tweet += line + "\n"
         
-        tweet += f"\n🔁 {tag} changes"
         return tweet
 
     # --- LÓGICA PRINCIPAL ---
@@ -110,7 +104,6 @@ def main():
     else:
         tweets_to_send.append('1h')
 
-    # CONEXIÓN (Idéntica al Hola Mundo)
     client = tweepy.Client(
         consumer_key=TWITTER_API_KEY,
         consumer_secret=TWITTER_API_SECRET,
@@ -122,9 +115,9 @@ def main():
         data = get_crypto_data()
         for mode in tweets_to_send:
             text = generate_tweet_text(data, mode)
-            # Verificación de seguridad de longitud
+            
             if len(text) > 280:
-                print(f"⚠️ AVISO: El tweet es muy largo ({len(text)} chars). Recortando...")
+                print(f"⚠️ Recortando tweet ({len(text)} chars)...")
                 text = text[:280]
             
             client.create_tweet(text=text)
