@@ -5,8 +5,13 @@ from datetime import datetime
 import pytz
 import time
 
+# --- CONFIGURACIÓN DE SEGURIDAD ---
+# Pon True si quieres probar cambios sin publicar en Twitter.
+# Pon False para que el bot funcione normalmente.
+MODO_PRUEBA = False 
+
 def main():
-    print("🤖 Iniciando bot (Versión Marketing $Cashtags)...")
+    print(f"🤖 Iniciando bot (Modo Prueba: {MODO_PRUEBA})...")
 
     # 1. CARGAR LLAVES
     CMC_API_KEY = os.environ.get("CMC_API_KEY")
@@ -16,6 +21,15 @@ def main():
     TWITTER_ACCESS_SECRET = os.environ.get("TWITTER_ACCESS_SECRET")
     
     HORA_REPORTE_UTC = 14
+
+    # --- CONSTANTES ATH (Máximos Históricos Aprox) ---
+    ATH_VALUES = {
+        '1': 108000,    # Bitcoin
+        '1027': 4891,   # Ethereum
+        '5426': 260,    # Solana
+        '1839': 720,    # BNB
+        '52': 3.84      # XRP
+    }
 
     # --- FUNCIONES INTERNAS ---
     def get_crypto_data():
@@ -95,7 +109,7 @@ def main():
         
         order = ['1', '1027', '5426', '1839', '52']
         
-        # Calcular MVP para el cohete
+        # Calcular MVP
         best_change = -9999999
         best_coin_id = None
         for coin_id in order:
@@ -110,21 +124,38 @@ def main():
             usd = c['quote']['USD']
             eur = c['quote']['EUR']
             change = usd[key]
+            price_usd = usd['price']
             
             rocket = " 🚀" if coin_id == best_coin_id else ""
             
-            # CAMBIO DE MARKETING: Añadimos '$' antes del símbolo
-            # Ejemplo: $BTC: $90,000...
-            line = (
-                f"${symbol}: {format_price(usd['price'], '$')} / {format_price(eur['price'], '€')} "
-                f"{get_emoji(change)} {change:+.1f}% {tag}{rocket}"
-            )
+            # --- LÓGICA SEMANAL (ATH) ---
+            if mode == '7d':
+                ath = ATH_VALUES.get(coin_id, 0)
+                if ath > 0:
+                    distance_pct = ((price_usd - ath) / ath) * 100
+                    if distance_pct >= 0:
+                        ath_str = "🏆 ATH!"
+                    else:
+                        ath_str = f"🏔️ {distance_pct:.0f}% ATH"
+                else:
+                    ath_str = ""
+                
+                # Semanal: Sin Euros, con ATH
+                line = (
+                    f"${symbol}: {format_price(price_usd, '$')} "
+                    f"{get_emoji(change)} {change:+.1f}% | {ath_str}"
+                )
+            else:
+                # Diario/Normal: Con Euros, sin ATH
+                line = (
+                    f"${symbol}: {format_price(price_usd, '$')} / {format_price(eur['price'], '€')} "
+                    f"{get_emoji(change)} {change:+.1f}% {tag}{rocket}"
+                )
+            
             tweet += line + "\n"
         
-        # CAMBIO DE MARKETING: Cashtags al final
         hashtags = "\n$BTC $ETH $SOL #Crypto"
         tweet += hashtags
-        
         return tweet
 
     # --- LÓGICA PRINCIPAL ---
@@ -151,15 +182,22 @@ def main():
         for mode in tweets_to_send:
             text = generate_tweet_text(data, mode)
             
-            # Recorte inteligente
+            # Recorte de seguridad
             if len(text) > 280:
                 text = text.replace("$BTC $ETH $SOL #Crypto", "#Crypto")
             if len(text) > 280:
                 text = text[:280]
             
-            client.create_tweet(text=text)
-            print(f"✅ Tweet enviado ({mode})!")
-            print(text)
+            # --- EL GRAN CAMBIO: MODO PRUEBA ---
+            if MODO_PRUEBA:
+                print(f"🧪 [SIMULACRO] Tweet que se enviaría ({mode}):")
+                print(text)
+                print("-" * 20)
+            else:
+                client.create_tweet(text=text)
+                print(f"✅ Tweet enviado ({mode})!")
+                print(text)
+            
             time.sleep(5)
             
     except Exception as e:
