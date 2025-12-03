@@ -1,7 +1,9 @@
-name: Crypto Bot 2H
+name: Crypto Bot UTC
 
 on:
   schedule:
+    # Se ejecuta cada 2 horas (Minuto 0)
+    # 00:00, 02:00, ... 14:00 (Especial), 16:00 ... UTC
     - cron: '0 */2 * * *'
   workflow_dispatch:
 
