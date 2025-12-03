@@ -11,15 +11,39 @@ TWITTER_API_SECRET = os.environ.get("TWITTER_API_SECRET")
 TWITTER_ACCESS_TOKEN = os.environ.get("TWITTER_ACCESS_TOKEN")
 TWITTER_ACCESS_SECRET = os.environ.get("TWITTER_ACCESS_SECRET")
 
+# Hora del reporte especial (15:00 hora España)
 HORA_REPORTE_CET = 15
 
 def get_crypto_data():
+    """
+    TRUCO PARA PLAN GRATUITO:
+    Hacemos 2 llamadas separadas porque el plan gratis no deja pedir USD y EUR a la vez.
+    """
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-    parameters = {'id': '1,1027,5426,1839,52', 'convert': 'USD,EUR'}
-    headers = {'Accepts': 'application/json', 'X-CMC_PRO_API_KEY': CMC_API_KEY}
-    response = requests.get(url, headers=headers, params=parameters)
-    response.raise_for_status()
-    return response.json()['data']
+    ids = '1,1027,5426,1839,52' # BTC, ETH, SOL, BNB, XRP
+    headers = {
+        'Accepts': 'application/json',
+        'X-CMC_PRO_API_KEY': CMC_API_KEY,
+    }
+
+    # 1. Pedir precios en USD
+    params_usd = {'id': ids, 'convert': 'USD'}
+    r_usd = requests.get(url, headers=headers, params=params_usd)
+    r_usd.raise_for_status()
+    data_usd = r_usd.json()['data']
+
+    # 2. Pedir precios en EUR
+    params_eur = {'id': ids, 'convert': 'EUR'}
+    r_eur = requests.get(url, headers=headers, params=params_eur)
+    r_eur.raise_for_status()
+    data_eur = r_eur.json()['data']
+
+    # 3. Fusionar los datos (meter el precio EUR dentro de los datos USD)
+    for coin_id in data_usd:
+        # Copiamos la parte de EUR de la segunda llamada a la primera
+        data_usd[coin_id]['quote']['EUR'] = data_eur[coin_id]['quote']['EUR']
+    
+    return data_usd
 
 def format_number(n, symbol):
     if n >= 1: return f"{symbol}{n:,.2f}"
@@ -37,9 +61,11 @@ def build_tweet_content(data):
     now_cet = datetime.now(cet_tz)
     now_et = datetime.now(et_tz)
     
+    # Lógica del reporte
     is_special_time = (now_cet.hour == HORA_REPORTE_CET)
     is_monday = (now_cet.weekday() == 0)
     
+    # Valores por defecto (1h)
     time_label = "(1h)"
     header_icon = "🪙"
     header_title = "Crypto Update"
@@ -66,6 +92,7 @@ def build_tweet_content(data):
         name = coin['symbol']
         quote_usd = coin['quote']['USD']
         quote_eur = coin['quote']['EUR']
+        
         change_val = quote_usd[change_key]
         emoji = get_emoji(change_val)
         
@@ -88,11 +115,18 @@ def main():
         access_token=TWITTER_ACCESS_TOKEN,
         access_token_secret=TWITTER_ACCESS_SECRET
     )
+    
     try:
+        # Obtener datos (ahora hace 2 llamadas internas)
         data = get_crypto_data()
+        
+        # Construir tweet
         tweet_text = build_tweet_content(data)
-        client.create_tweet(text=tweet_text)
+        
+        # Publicar
+        response = client.create_tweet(text=tweet_text)
         print(f"✅ Tweet enviado!\n{tweet_text}")
+        
     except Exception as e:
         print(f"❌ Error: {e}")
         raise e
