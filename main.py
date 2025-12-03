@@ -6,7 +6,7 @@ import pytz
 import time
 
 def main():
-    print("🤖 Iniciando bot (Versión Final con Cohete y Hashtags)...")
+    print("🤖 Iniciando bot (Versión Marketing $Cashtags)...")
 
     # 1. CARGAR LLAVES
     CMC_API_KEY = os.environ.get("CMC_API_KEY")
@@ -46,7 +46,6 @@ def main():
             data = r.json()['data'][0]
             value = int(data['value'])
             
-            # Icono según sentimiento
             if value >= 75: icon = "🤑" 
             elif value >= 55: icon = "🐂" 
             elif value <= 25: icon = "😨" 
@@ -72,9 +71,8 @@ def main():
         now_utc = datetime.now(pytz.utc)
         time_str = now_utc.strftime('%H:%M UTC')
         
-        # Configuración por modo
         extra_header = ""
-        key = 'percent_change_1h' # Por defecto
+        key = 'percent_change_1h'
 
         if mode == '7d':
             title = "Weekly Wrap"
@@ -86,30 +84,26 @@ def main():
             icon = "📊"
             tag = "(24h)"
             key = 'percent_change_24h'
-            extra_header = get_fear_and_greed() # Solo en diario
+            extra_header = get_fear_and_greed()
         else: 
             title = "Update"
             icon = "🪙"
             tag = "(1h)"
             key = 'percent_change_1h'
 
-        # Cabecera
         tweet = f"{icon} {title} | {time_str}\n{extra_header}\n"
         
         order = ['1', '1027', '5426', '1839', '52']
         
-        # 1. Calcular cuál es el MVP (La mejor moneda)
+        # Calcular MVP para el cohete
         best_change = -9999999
         best_coin_id = None
-        
         for coin_id in order:
-            # Buscamos la que tenga el número más alto
             change = data[coin_id]['quote']['USD'][key]
             if change > best_change:
                 best_change = change
                 best_coin_id = coin_id
 
-        # 2. Construir lista
         for coin_id in order:
             c = data[coin_id]
             symbol = c['symbol']
@@ -117,17 +111,18 @@ def main():
             eur = c['quote']['EUR']
             change = usd[key]
             
-            # Lógica del Cohete: Si es la mejor moneda, añadimos 🚀
             rocket = " 🚀" if coin_id == best_coin_id else ""
             
+            # CAMBIO DE MARKETING: Añadimos '$' antes del símbolo
+            # Ejemplo: $BTC: $90,000...
             line = (
-                f"{symbol}: {format_price(usd['price'], '$')} / {format_price(eur['price'], '€')} "
+                f"${symbol}: {format_price(usd['price'], '$')} / {format_price(eur['price'], '€')} "
                 f"{get_emoji(change)} {change:+.1f}% {tag}{rocket}"
             )
             tweet += line + "\n"
         
-        # 3. Hashtags (Intentamos meter los 3)
-        hashtags = "\n#Bitcoin #Ethereum #Crypto"
+        # CAMBIO DE MARKETING: Cashtags al final
+        hashtags = "\n$BTC $ETH $SOL #Crypto"
         tweet += hashtags
         
         return tweet
@@ -156,14 +151,11 @@ def main():
         for mode in tweets_to_send:
             text = generate_tweet_text(data, mode)
             
-            # Recorte de seguridad inteligente
-            # Si nos pasamos de 280, quitamos hashtags primero
+            # Recorte inteligente
             if len(text) > 280:
-                print("⚠️ Tweet muy largo, quitando hashtags...")
-                text = text.replace("#Bitcoin #Ethereum #Crypto", "#BTC #ETH #Crypto")
-            
+                text = text.replace("$BTC $ETH $SOL #Crypto", "#Crypto")
             if len(text) > 280:
-                text = text[:280] # Corte final de emergencia
+                text = text[:280]
             
             client.create_tweet(text=text)
             print(f"✅ Tweet enviado ({mode})!")
