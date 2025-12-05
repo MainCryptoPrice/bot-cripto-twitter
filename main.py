@@ -5,13 +5,13 @@ from datetime import datetime
 import pytz
 import time
 
-# --- CONFIGURACIÓN DE SEGURIDAD ---
+# --- CONFIGURACIÓN ---
 MODO_PRUEBA = False 
 
 def main():
     print(f"🤖 Iniciando bot (Modo Prueba: {MODO_PRUEBA})...")
 
-    # 1. CARGAR LLAVES
+    # CARGAR LLAVES
     CMC_API_KEY = os.environ.get("CMC_API_KEY")
     TWITTER_API_KEY = os.environ.get("TWITTER_API_KEY")
     TWITTER_API_SECRET = os.environ.get("TWITTER_API_SECRET")
@@ -20,57 +20,63 @@ def main():
     
     HORA_REPORTE_UTC = 14
 
-    # --- CONSTANTES ATH ---
     ATH_VALUES = {
-        '1': 108000,    # Bitcoin
-        '1027': 4891,   # Ethereum
-        '5426': 260,    # Solana
-        '1839': 720,    # BNB
-        '52': 3.84      # XRP
+        '1': 108000,    '1027': 4891,   '5426': 260,
+        '1839': 720,    '52': 3.84
     }
 
-    # --- FUNCIONES INTERNAS ---
-    def get_crypto_data():
+    # --- FUNCIONES ROBUSTAS ---
+    def get_crypto_data_con_reintentos():
+        """Intenta obtener datos hasta 3 veces si falla"""
+        max_retries = 3
         url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
         ids = '1,1027,5426,1839,52' 
         headers = {'Accepts': 'application/json', 'X-CMC_PRO_API_KEY': CMC_API_KEY}
         
-        try:
-            r_usd = requests.get(url, headers=headers, params={'id': ids, 'convert': 'USD'})
-            r_usd.raise_for_status()
-            data_usd = r_usd.json()['data']
+        for i in range(max_retries):
+            try:
+                print(f"📡 Conectando con CMC (Intento {i+1}/{max_retries})...")
+                # 1. USD
+                r_usd = requests.get(url, headers=headers, params={'id': ids, 'convert': 'USD'}, timeout=10)
+                r_usd.raise_for_status()
+                data_usd = r_usd.json()['data']
+                
+                # 2. EUR
+                r_eur = requests.get(url, headers=headers, params={'id': ids, 'convert': 'EUR'}, timeout=10)
+                r_eur.raise_for_status()
+                data_eur = r_eur.json()['data']
 
-            r_eur = requests.get(url, headers=headers, params={'id': ids, 'convert': 'EUR'})
-            r_eur.raise_for_status()
-            data_eur = r_eur.json()['data']
-
-            for coin_id in data_usd:
-                data_usd[coin_id]['quote']['EUR'] = data_eur[coin_id]['quote']['EUR']
-            return data_usd
-        except Exception as e:
-            print(f"❌ Error API CMC: {e}")
-            raise e
+                for coin_id in data_usd:
+                    data_usd[coin_id]['quote']['EUR'] = data_eur[coin_id]['quote']['EUR']
+                
+                return data_usd # ¡Éxito!
+            
+            except Exception as e:
+                print(f"⚠️ Fallo en intento {i+1}: {e}")
+                if i < max_retries - 1:
+                    print("⏳ Esperando 60 segundos antes de reintentar...")
+                    time.sleep(60) # Espera 1 minuto
+                else:
+                    print("❌ Se acabaron los intentos. Rendirse.")
+                    raise e
 
     def get_fear_and_greed():
         try:
-            r = requests.get("https://api.alternative.me/fng/?limit=1")
+            r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5)
             data = r.json()['data'][0]
-            value = int(data['value'])
-            
-            if value >= 75: icon = "🤑" 
-            elif value >= 55: icon = "🐂" 
-            elif value <= 25: icon = "😨" 
-            elif value <= 45: icon = "🐻" 
-            else: icon = "😐" 
-            
-            return f"🧠 Sentiment: {value}/100 {icon}\n"
-        except:
-            return "" 
+            val = int(data['value'])
+            if val >= 75: i = "🤑" 
+            elif val >= 55: i = "🐂" 
+            elif val <= 25: i = "😨" 
+            elif val <= 45: i = "🐻" 
+            else: i = "😐" 
+            return f"🧠 Sentiment: {val}/100 {i}\n"
+        except: return "" 
 
-    def format_price(n, symbol):
-        if n > 100: return f"{symbol}{n:,.0f}"
-        elif n >= 1: return f"{symbol}{n:,.2f}"
-        else: return f"{symbol}{n:,.4f}"
+    def format_price(n, s):
+        if n > 100: return f"{s}{n:,.0f}"
+        elif n >= 1: return f"{s}{n:,.2f}"
+        else: return f"{s}{n:,.4f}"
 
     def get_emoji(change):
         if change is None: return "⚪"
@@ -81,7 +87,6 @@ def main():
     def generate_tweet_text(data, mode):
         now_utc = datetime.now(pytz.utc)
         time_str = now_utc.strftime('%H:%M UTC')
-        
         extra_header = ""
         key = 'percent_change_1h'
 
@@ -98,102 +103,78 @@ def main():
             extra_header = get_fear_and_greed()
         else: 
             title = "Update"
-            # CAMBIO AQUÍ: Bolsa de dinero en vez de moneda
-            icon = "💰" 
+            icon = "💰"
             tag = "(1h)"
             key = 'percent_change_1h'
 
         tweet = f"{icon} {title} | {time_str}\n{extra_header}\n"
-        
         order = ['1', '1027', '5426', '1839', '52']
         
-        # Calcular MVP
         best_change = -9999999
         best_coin_id = None
-        for coin_id in order:
-            change = data[coin_id]['quote']['USD'][key]
-            if change > best_change:
-                best_change = change
-                best_coin_id = coin_id
+        for cid in order:
+            ch = data[cid]['quote']['USD'][key]
+            if ch > best_change: best_change = ch; best_coin_id = cid
 
-        for coin_id in order:
-            c = data[coin_id]
-            symbol = c['symbol']
+        for cid in order:
+            c = data[cid]
+            sym = c['symbol']
             usd = c['quote']['USD']
             eur = c['quote']['EUR']
-            change = usd[key]
-            price_usd = usd['price']
+            ch = usd[key]
+            pusd = usd['price']
             
-            rocket = " 🚀" if coin_id == best_coin_id else ""
+            rocket = " 🚀" if cid == best_coin_id else ""
             
             if mode == '7d':
-                ath = ATH_VALUES.get(coin_id, 0)
+                ath = ATH_VALUES.get(cid, 0)
                 if ath > 0:
-                    distance_pct = ((price_usd - ath) / ath) * 100
-                    if distance_pct >= 0:
-                        ath_str = "🏆 ATH!"
-                    else:
-                        ath_str = f"🏔️ {distance_pct:.0f}% ATH"
-                else:
-                    ath_str = ""
-                
-                line = (
-                    f"${symbol}: {format_price(price_usd, '$')} "
-                    f"{get_emoji(change)} {change:+.1f}% | {ath_str}"
-                )
+                    dpct = ((pusd - ath) / ath) * 100
+                    ath_str = "🏆 ATH!" if dpct >= 0 else f"🏔️ {dpct:.0f}% ATH"
+                else: ath_str = ""
+                line = f"${sym}: {format_price(pusd, '$')} {get_emoji(ch)} {ch:+.1f}% | {ath_str}"
             else:
-                line = (
-                    f"${symbol}: {format_price(price_usd, '$')} / {format_price(eur['price'], '€')} "
-                    f"{get_emoji(change)} {change:+.1f}% {tag}{rocket}"
-                )
-            
+                line = f"${sym}: {format_price(pusd, '$')} / {format_price(eur['price'], '€')} {get_emoji(ch)} {ch:+.1f}% {tag}{rocket}"
             tweet += line + "\n"
         
-        hashtags = "\n$BTC $ETH $SOL #Crypto"
-        tweet += hashtags
+        tweet += "\n$BTC $ETH $SOL #Crypto"
         return tweet
 
-    # --- LÓGICA PRINCIPAL ---
+    # --- EJECUCIÓN PRINCIPAL ---
     now_utc = datetime.now(pytz.utc)
-    current_hour = now_utc.hour
+    curr_h = now_utc.hour
+    to_send = []
     
-    tweets_to_send = []
-    if current_hour == HORA_REPORTE_UTC:
-        tweets_to_send.append('24h')
-        if now_utc.weekday() == 0:
-            tweets_to_send.append('7d')
+    # Lógica de horario
+    if curr_h == HORA_REPORTE_UTC:
+        to_send.append('24h')
+        if now_utc.weekday() == 0: to_send.append('7d')
     else:
-        # En el resto de horas, mandamos el normal
-        tweets_to_send.append('1h')
+        to_send.append('1h')
 
     client = tweepy.Client(
-        consumer_key=TWITTER_API_KEY,
-        consumer_secret=TWITTER_API_SECRET,
-        access_token=TWITTER_ACCESS_TOKEN,
-        access_token_secret=TWITTER_ACCESS_SECRET
+        consumer_key=TWITTER_API_KEY, consumer_secret=TWITTER_API_SECRET,
+        access_token=TWITTER_ACCESS_TOKEN, access_token_secret=TWITTER_ACCESS_SECRET
     )
     
     try:
-        data = get_crypto_data()
-        for mode in tweets_to_send:
+        # Usamos la función nueva con reintentos
+        data = get_crypto_data_con_reintentos()
+        
+        for mode in to_send:
             text = generate_tweet_text(data, mode)
-            
-            if len(text) > 280:
-                text = text.replace("$BTC $ETH $SOL #Crypto", "#Crypto")
-            if len(text) > 280:
-                text = text[:280]
+            if len(text) > 280: text = text.replace("$BTC $ETH $SOL #Crypto", "#Crypto")
+            if len(text) > 280: text = text[:280]
             
             if MODO_PRUEBA:
-                print(f"🧪 [SIMULACRO] Tweet ({mode}):\n{text}\n{'-'*20}")
+                print(f"🧪 [TEST] {mode}:\n{text}")
             else:
                 client.create_tweet(text=text)
-                print(f"✅ Tweet enviado ({mode})!")
-                print(text)
-            
+                print(f"✅ Enviado {mode}")
             time.sleep(5)
             
     except Exception as e:
-        print(f"❌ Error fatal: {e}")
+        print(f"❌ Error fatal tras reintentos: {e}")
         raise e
 
 if __name__ == "__main__":
